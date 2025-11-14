@@ -4,6 +4,7 @@ phases:
   build:
     commands:
       - echo "Welcome to the Codepipeline Build Phase!"
+      - echo "Thank you!"
       # - echo "Starting EC2 instance creation using CloudFormation..."
       # - aws cloudformation create-stack --stack-name MyEC2Stack --template-body file://ec2.yaml --parameters ParameterKey=KeyName,ParameterValue=aws_tony_use1 ParameterKey=InstanceType,ParameterValue=t2.micro
       # - echo "Waiting for stack creation to complete..."
