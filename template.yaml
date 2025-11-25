@@ -1,47 +1,46 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   AWS CI/CD pipeline demo using GitHub + CodePipeline + CodeBuild + Docker + ECR.
-  Includes reading GitHub token from SSM Parameter Store.
+  Includes reading GitHub PAT securely from SSM Parameter Store (SecureString).
 
 Parameters:
   GitHubOwner:
     Type: String
-    Description: GitHub user or organization that owns the repository.
+    Description: GitHub user or organization owning the repository.
 
   GitHubRepo:
     Type: String
-    Description: GitHub repository name that contains the source code.
+    Description: GitHub repository name.
 
   GitHubBranch:
     Type: String
     Default: main
-    Description: Branch that will trigger the pipeline and be used as source.
+    Description: Git branch that will trigger the pipeline.
 
-  # GitHub PAT stored in AWS Systems Manager Parameter Store (SecureString).
-  # The Source Stage and Webhook will read token from SSM.
+  # IMPORTANT:
+  # This parameter is the *key name* of the SSM SecureString parameter.
+  # Example value: /github/pat/pipeline
   GitHubOAuthToken:
-    Type: AWS::SSM::Parameter::Value<String>
+    Type: String
     Default: /github/pat/pipeline
-    Description: SSM Parameter containing the GitHub Personal Access Token (SecureString).
+    Description: SSM SecureString parameter key storing the GitHub PAT.
 
-  # ECR repository URI (must exist prior to deploying this template)
   EcrRepositoryUri:
     Type: String
-    Description: Full ECR repository URI where Docker images will be pushed.
+    Description: Existing ECR repository URI where Docker images will be pushed.
 
-  # The CodeBuild environment image used for building Docker images
   CodeBuildImage:
     Type: String
     Default: "aws/codebuild/standard:7.0"
-    Description: CodeBuild container image to be used during the build process.
+    Description: CodeBuild environment image used for building Docker images.
 
 
 Resources:
-  ########################################
-  # S3 BUCKET FOR ARTIFACT STORAGE
-  ########################################
-  # This S3 bucket stores pipeline artifacts (source and build output).
-  # CodePipeline requires a dedicated S3 bucket.
+  ###########################################
+  # S3 ARTIFACT BUCKET
+  ###########################################
+  # CodePipeline requires an S3 bucket to store
+  # source and build artifacts.
   ArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -51,15 +50,13 @@ Resources:
               SSEAlgorithm: AES256
 
 
-  ########################################
+  ###########################################
   # IAM ROLE FOR CODEBUILD
-  ########################################
-  # This IAM role is assumed by CodeBuild during the build process.
-  # It needs permissions to:
-  #   - Access S3 artifacts
-  #   - Authenticate to ECR
-  #   - Push Docker images to ECR
-  #   - Create ENI (if running inside a VPC)
+  ###########################################
+  # Allows CodeBuild to:
+  #  - Access S3 bucket
+  #  - Authenticate & push images to ECR
+  #  - (Optional) create ENI if needed
   CodeBuildRole:
     Type: AWS::IAM::Role
     Properties:
@@ -74,11 +71,11 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
       Policies:
-        - PolicyName: CodeBuildInlinePolicy
+        - PolicyName: CodeBuildPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Allow CodeBuild to read/write artifacts in S3
+              # Allow CodeBuild to interact with S3 artifact bucket
               - Effect: Allow
                 Action:
                   - s3:GetObject
@@ -89,7 +86,7 @@ Resources:
                   - !GetAtt ArtifactBucket.Arn
                   - !Sub "${ArtifactBucket.Arn}/*"
 
-              # Allow Docker authentication and image push to ECR
+              # Allow pushing Docker images to ECR
               - Effect: Allow
                 Action:
                   - ecr:GetAuthorizationToken
@@ -102,7 +99,7 @@ Resources:
                   - ecr:BatchGetImage
                 Resource: "*"
 
-              # Required if CodeBuild is launched in a VPC (optional)
+              # Needed if build runs inside VPC (optional)
               - Effect: Allow
                 Action:
                   - ec2:CreateNetworkInterface
@@ -111,16 +108,16 @@ Resources:
                 Resource: "*"
 
 
-  ########################################
+  ###########################################
   # CODEBUILD PROJECT
-  ########################################
-  # This CodeBuild project builds the Docker image and pushes it to ECR.
-  # It uses the buildspec.yml file inside the repo.
+  ###########################################
+  # Builds the Docker image using buildspec.yml
+  # and pushes it to ECR.
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub "docker-build-${AWS::StackName}"
-      Description: Builds the Docker image for the Flask app and pushes to ECR.
+      Description: Build and push Docker image to ECR.
       ServiceRole: !GetAtt CodeBuildRole.Arn
       Artifacts:
         Type: CODEPIPELINE
@@ -128,7 +125,7 @@ Resources:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildImage
-        PrivilegedMode: true      # Required to run Docker inside CodeBuild
+        PrivilegedMode: true   # Required for Docker build
         EnvironmentVariables:
           - Name: ECR_REPO_URI
             Type: PLAINTEXT
@@ -139,13 +136,13 @@ Resources:
       TimeoutInMinutes: 30
 
 
-  ########################################
+  ###########################################
   # IAM ROLE FOR CODEPIPELINE
-  ########################################
-  # CodePipeline uses this role to:
-  #   - Read/write artifacts to S3
-  #   - Trigger CodeBuild jobs
-  #   - Read GitHub token from SSM
+  ###########################################
+  # Allows CodePipeline to:
+  #  - Read/write artifacts from S3
+  #  - Trigger CodeBuild
+  #  - Use dynamic SSM SecureString reference
   CodePipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -157,13 +154,12 @@ Resources:
             Principal:
               Service: codepipeline.amazonaws.com
             Action: sts:AssumeRole
-
       Policies:
-        - PolicyName: CodePipelineInlinePolicy
+        - PolicyName: CodePipelinePolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Allow CodePipeline to interact with S3 artifact bucket
+              # Allow CodePipeline to use S3 artifact bucket
               - Effect: Allow
                 Action:
                   - s3:GetObject
@@ -174,11 +170,11 @@ Resources:
                   - !GetAtt ArtifactBucket.Arn
                   - !Sub "${ArtifactBucket.Arn}/*"
 
-              # Allow CodePipeline to start CodeBuild builds
+              # Allow CodePipeline to start CodeBuild project
               - Effect: Allow
                 Action:
-                  - codebuild:BatchGetBuilds
                   - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
                 Resource: !GetAtt CodeBuildProject.Arn
 
               # Allow CodePipeline to pass IAM role to CodeBuild
@@ -187,22 +183,13 @@ Resources:
                   - iam:PassRole
                 Resource: !GetAtt CodeBuildRole.Arn
 
-              # Allow CodePipeline to read GitHub PAT from SSM Parameter Store
-              - Effect: Allow
-                Action:
-                  - ssm:GetParameter
-                  - ssm:GetParameters
-                  - ssm:GetParameterHistory
-                Resource: "arn:aws:ssm:*:*:parameter/github/pat/*"
 
-
-  ########################################
-  # CODEPIPELINE DEFINITION
-  ########################################
-  # This is the main CI/CD pipeline definition.
-  # It contains:
-  #   - Source stage (GitHub)
-  #   - Build stage (CodeBuild)
+  ###########################################
+  # CODEPIPELINE
+  ###########################################
+  # Main CI/CD pipeline:
+  #   Stage 1: Source from GitHub
+  #   Stage 2: Build using CodeBuild
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -213,14 +200,15 @@ Resources:
         Location: !Ref ArtifactBucket
 
       Stages:
+        ###################################
         # SOURCE STAGE (GitHub)
-        # Pulls source code from GitHub using PAT token from SSM.
+        ###################################
         - Name: Source
           Actions:
-            - Name: SourceAction
+            - Name: GitHubSource
               ActionTypeId:
                 Category: Source
-                Owner: ThirdParty     # Must be ThirdParty for GitHub v1
+                Owner: ThirdParty
                 Provider: GitHub
                 Version: "1"
               OutputArtifacts:
@@ -229,15 +217,17 @@ Resources:
                 Owner: !Ref GitHubOwner
                 Repo: !Ref GitHubRepo
                 Branch: !Ref GitHubBranch
-                OAuthToken: !Ref GitHubOAuthToken     # Token from SSM
-                PollForSourceChanges: "false"         # Webhook-driven
+                # Read GitHub PAT securely using SSM dynamic reference
+                OAuthToken: !Sub "{{resolve:ssm-secure:${GitHubOAuthToken}}}"
+                PollForSourceChanges: "false"
               RunOrder: 1
 
+        ###################################
         # BUILD STAGE (CodeBuild)
-        # Builds Docker image and pushes to ECR.
+        ###################################
         - Name: Build
           Actions:
-            - Name: BuildAction
+            - Name: CodeBuildAction
               ActionTypeId:
                 Category: Build
                 Owner: AWS
@@ -252,33 +242,33 @@ Resources:
               RunOrder: 1
 
 
-  ########################################
-  # GITHUB WEBHOOK
-  ########################################
-  # Registers a webhook with GitHub so that any push to the configured branch
-  # automatically triggers the pipeline.
+  ###########################################
+  # GITHUB WEBHOOK (Triggers Pipeline)
+  ###########################################
+  # Automatically triggers CodePipeline when someone pushes to GitHub.
   CodePipelineWebhook:
     Type: AWS::CodePipeline::Webhook
     Properties:
       Name: !Sub "github-webhook-${AWS::StackName}"
-      Authentication: GITHUB_HMAC              # GitHub requires HMAC auth
+      Authentication: GITHUB_HMAC
       AuthenticationConfiguration:
-        SecretToken: !Ref GitHubOAuthToken    # Token from SSM
+        # Secure GitHub Webhook secret token (from SSM)
+        SecretToken: !Sub "{{resolve:ssm-secure:${GitHubOAuthToken}}}"
       Filters:
         # Only trigger on pushes to the configured branch
         - JsonPath: $.ref
           MatchEquals: !Sub "refs/heads/${GitHubBranch}"
       TargetPipeline: !Ref CodePipeline
-      TargetAction: SourceAction
+      TargetAction: GitHubSource
       TargetPipelineVersion: !GetAtt CodePipeline.Version
-      RegisterWithThirdParty: true            # Auto-register webhook with GitHub
+      RegisterWithThirdParty: true
 
 
 Outputs:
   PipelineName:
-    Description: Name of the generated CodePipeline.
+    Description: Name of the created CodePipeline.
     Value: !Ref CodePipeline
 
   ArtifactBucketName:
-    Description: Name of the artifact S3 bucket.
+    Description: S3 bucket name where artifacts are stored.
     Value: !Ref ArtifactBucket
