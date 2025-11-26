@@ -21,10 +21,9 @@ phases:
       - echo "Pre-build phase - Đăng nhập vào ECR"
       # Lấy region từ biến môi trường AWS_DEFAULT_REGION (CodeBuild tự set)
       - echo "Region: $AWS_DEFAULT_REGION"
-      # Đăng nhập ECR (chuẩn mới dùng get-login-password)
+      - echo "Logging into ECR"
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin "$ECR_REPO_URI"
-
-      # Lấy short commit ID để làm tag
+      - echo "Getting commit ID for tagging"
       - COMMIT_ID=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - echo "Commit ID: $COMMIT_ID"
       - IMAGE_TAG=${COMMIT_ID:-latest}
@@ -41,8 +40,7 @@ phases:
     commands:
       - echo "Post-build phase - Push Docker image lên ECR"
       - docker push "$ECR_REPO_URI:$IMAGE_TAG"
-
-      # Ghi ra file imagedefinitions.json nếu bạn muốn dùng ECS deploy (tùy bạn)
+      - echo "Creating imagedefinitions.json for ECS deployment"
       - printf '[{"name":"%s","imageUri":"%s"}]' "$IMAGE_NAME" "$ECR_REPO_URI:$IMAGE_TAG" > imagedefinitions.json
 
 artifacts:
