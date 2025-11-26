@@ -1,36 +1,31 @@
 version: 0.2
 
-# Biến môi trường của build
 env:
   variables:
     IMAGE_NAME: "aws-cicd-docker-pipeline"
 
 phases:
   pre_build:
-    # Pre-build: login ECR, lấy commit ID
     commands:
-      - echo "Logging into ECR"
+      - echo "Pre-build phase - Logging into ECR"
       - echo "Region: $AWS_DEFAULT_REGION"
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin "$ECR_REPO_URI"
-      
-      # Lấy commit ID
       - COMMIT_ID=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_ID:-latest}
       - echo "Using tag $IMAGE_TAG"
 
   build:
-    # Build Docker
     commands:
-      - echo "Build Docker image"
+      - echo "Build phase - Building Docker image"
       - docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
 
   post_build:
     commands:
-      - echo "Push image lên ECR"
+      - echo "Post-build phase - Pushing image to ECR"
       - docker push "$ECR_REPO_URI:$IMAGE_TAG"
-      # Tạo file ECS deploy
       - printf '[{"name":"%s","imageUri":"%s"}]' "$IMAGE_NAME" "$ECR_REPO_URI:$IMAGE_TAG" > imagedefinitions.json
 
 artifacts:
   files:
     - imagedefinitions.json
+  discard-paths: yes
