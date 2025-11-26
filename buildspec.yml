@@ -1,50 +1,36 @@
-# buildspec.yml
-#
-# File này dùng bởi AWS CodeBuild để:
-# 1. Đăng nhập vào ECR
-# 2. Build Docker image từ Dockerfile
-# 3. Tag image với commit ID
-# 4. Push image lên ECR repo được truyền từ CloudFormation
-#
-# CodeBuild Project sẽ truyền biến môi trường ECR_REPO_URI (ví dụ: 123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/aws-cicd-docker-pipeline)
-
 version: 0.2
 
+# Biến môi trường của build
 env:
   variables:
-    # Tên logical cho image, không cần đầy đủ URI
     IMAGE_NAME: "aws-cicd-docker-pipeline"
 
 phases:
   pre_build:
+    # Pre-build: login ECR, lấy commit ID
     commands:
-      - echo "Pre-build phase - Đăng nhập vào ECR"
-      # Lấy region từ biến môi trường AWS_DEFAULT_REGION (CodeBuild tự set)
-      - echo "Region: $AWS_DEFAULT_REGION"
       - echo "Logging into ECR"
+      - echo "Region: $AWS_DEFAULT_REGION"
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin "$ECR_REPO_URI"
-      - echo "Getting commit ID for tagging"
+      
+      # Lấy commit ID
       - COMMIT_ID=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - echo "Commit ID: $COMMIT_ID"
       - IMAGE_TAG=${COMMIT_ID:-latest}
-      - echo "Using image tag: $IMAGE_TAG"
+      - echo "Using tag $IMAGE_TAG"
 
   build:
+    # Build Docker
     commands:
-      - echo "Build phase - Build Docker image"
+      - echo "Build Docker image"
       - docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
-      - echo "Tagging image with ECR URI"
-      - docker tag "$IMAGE_NAME:$IMAGE_TAG" "$ECR_REPO_URI:$IMAGE_TAG"
 
   post_build:
     commands:
-      - echo "Post-build phase - Push Docker image lên ECR"
+      - echo "Push image lên ECR"
       - docker push "$ECR_REPO_URI:$IMAGE_TAG"
-      - echo "Creating imagedefinitions.json for ECS deployment"
+      # Tạo file ECS deploy
       - printf '[{"name":"%s","imageUri":"%s"}]' "$IMAGE_NAME" "$ECR_REPO_URI:$IMAGE_TAG" > imagedefinitions.json
 
 artifacts:
   files:
-    # Xuất artifacts nếu cần dùng ở stage tiếp theo (ví dụ ECS deploy)
     - imagedefinitions.json
-  discard-paths: yes
