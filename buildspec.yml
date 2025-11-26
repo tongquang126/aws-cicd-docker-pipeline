@@ -18,6 +18,8 @@ phases:
     commands:
       - echo "Building Docker image"
       - docker build -t $IMAGE_NAME:$IMAGE_TAG .
+      - echo "Tagging image for ECR"
+      - docker tag $IMAGE_NAME:$IMAGE_TAG $ECR_REPO_URI:$IMAGE_TAG
 
   post_build:
     commands:
