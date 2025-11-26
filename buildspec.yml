@@ -7,6 +7,7 @@ env:
 phases:
   pre_build:
     commands:
+      # Dòng này phải thụt lề 4 spaces so với "phases" (hoặc 2 spaces so với "commands")
       - echo "Pre-build: logging in to ECR"
       - echo "Region: $AWS_DEFAULT_REGION"
       - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$ECR_REPO_URI"
