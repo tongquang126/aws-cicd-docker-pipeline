@@ -3,8 +3,8 @@
 # Dockerfile dùng để build image cho Flask web app.
 # CodeBuild sẽ dùng Dockerfile này để build image và push lên ECR.
 
-# Base image Python
-FROM python:3.11-slim
+# Base image Python from Amazon ECR Public Gallery (no rate limit)
+FROM public.ecr.aws/docker/library/python:3.11-slim
 
 # Không tạo .pyc, log sạch sẽ hơn
 ENV PYTHONDONTWRITEBYTECODE=1
