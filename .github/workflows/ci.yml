@@ -40,5 +40,4 @@ jobs:
 
     - name: Run tests (if any)
       run: |
-        # Add your test commands here
         echo "No tests defined yet"
