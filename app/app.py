@@ -21,7 +21,8 @@ def index():
       </head>
       <body>
         <h1>Hello from aws-cicd-docker-pipeline!</h1>
-        <p>This web app is built with Flask, Docker, CodeBuild, and CodePipeline.</p>
+        <p>This web app is built with Flask, Docker, CodeBuild, and
+        CodePipeline.</p>
       </body>
     </html>
     """
